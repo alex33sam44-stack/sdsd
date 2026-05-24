@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  frontend:
+    name: Frontend (lint, test, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install frontend deps
+        run: npm ci
+      - name: Lint frontend
+        run: npm run lint
+      - name: Test frontend
+        run: npm run test
+      - name: Validate CI placeholder is intentionally non-staging
+        run: test "${VITE_API_BASE_URL:-https://example.invalid/api}" = "https://example.invalid/api"
+      - name: Build frontend
+        env:
+          VITE_API_BASE_URL: https://example.invalid/api
+          VITE_APP_VERSION: ci
+          VITE_RELEASE_NAME: ci@${{ github.sha }}
+        run: npm run build
+      - name: Release verification (frontend)
+        env:
+          VITE_API_BASE_URL: https://example.invalid/api
+          VITE_APP_VERSION: ci
+          VITE_RELEASE_NAME: ci@${{ github.sha }}
+          RELEASE_VERIFY_STRICT: 0
+          RELEASE_VERIFY_OUTPUT: frontend-release-report.json
+        run: npm run verify:release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-release-report
+          path: frontend-release-report.json
+
+  backend:
+    name: Backend (lint, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install backend deps
+        run: npm install
+      - name: Prisma generate
+        run: npm run prisma:generate
+      - name: Lint backend
+        run: npm run lint
+      - name: Test backend (with coverage)
+        run: npm run test:cov
+      - name: Upload backend coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage
+          if-no-files-found: ignore
+      - name: Build backend
+        env:
+          APP_VERSION: ci@${{ github.sha }}
+        run: npm run build
+      - name: Release verification (backend)
+        env:
+          APP_VERSION: ci@${{ github.sha }}
+          RELEASE_VERIFY_STRICT: 0
+        run: npm run release:verify
