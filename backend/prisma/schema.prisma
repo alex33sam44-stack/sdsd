@@ -1,0 +1,603 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+enum AppRole {
+  passenger
+  platform_owner
+  station_operator
+  platform_admin
+  support_agent
+}
+
+enum TenantRole {
+  tenant_owner
+  tenant_admin
+  ops_manager
+  station_manager
+  line_supervisor
+  viewer
+}
+
+enum TenantStatus {
+  active
+  suspended
+  archived
+}
+
+enum TenantInviteStatus {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+enum BillingProvider {
+  manual
+  stripe
+  lemon_squeezy
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  paused
+  canceled
+  expired
+}
+
+enum BillingInterval {
+  monthly
+  yearly
+  custom
+}
+
+enum VehicleType {
+  microbus    @map("ميكروباص")
+  bus         @map("أتوبيس")
+  minibus     @map("ميني_باص")
+  taxi        @map("تاكسي")
+}
+
+enum LineStatus {
+  active
+  paused
+  closed
+}
+
+enum DraftStatus {
+  pending
+  approved
+  rejected
+  applied
+}
+
+enum UserContributionType {
+  station_line
+  route_feature
+}
+
+enum UserContributionStatus {
+  pending_review
+  approved
+  rejected
+  applied
+}
+
+// ---------- Tenancy ----------
+model Tenant {
+  id        String       @id @default(uuid()) @db.Char(36)
+  slug      String       @unique
+  name      String
+  status    TenantStatus @default(active)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  settings          TenantSettings?
+  plan              TenantPlan?
+  billingProfile    TenantBillingProfile?
+  subscription      TenantSubscription?
+  webhookEvents     BillingWebhookEvent[]
+  memberships       TenantMembership[]
+  invites           TenantInvite[]
+  cities            City[]
+  stations          Station[]
+  stationLayouts    StationLayout[]
+  layoutZones       LayoutZone[]
+  lines             Line[]
+  routeStops        RouteStop[]
+  availabilityLogs  AvailabilityLog[]
+  favorites         Favorite[]
+  searchLogs        SearchLog[]
+  auditLogs         AuditLog[]
+  draftChanges      DraftChange[]
+  userContributions UserContribution[]
+
+  @@map("tenants")
+}
+
+model TenantInvite {
+  id          String             @id @default(uuid()) @db.Char(36)
+  tenantId    String             @map("tenant_id") @db.Char(36)
+  email       String
+  role        TenantRole
+  token       String             @unique
+  invitedById String?            @map("invited_by_id") @db.Char(36)
+  status      TenantInviteStatus @default(pending)
+  expiresAt   DateTime           @map("expires_at")
+  acceptedAt  DateTime?          @map("accepted_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy User?  @relation(fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([email, status])
+  @@map("tenant_invites")
+}
+
+model TenantMembership {
+  id         String     @id @default(uuid()) @db.Char(36)
+  tenantId   String     @map("tenant_id") @db.Char(36)
+  userId     String     @map("user_id") @db.Char(36)
+  role       TenantRole
+  createdAt  DateTime   @default(now()) @map("created_at")
+  acceptedAt DateTime?  @map("accepted_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_memberships")
+}
+
+model TenantSettings {
+  tenantId    String  @id @map("tenant_id") @db.Char(36)
+  locale      String  @default("ar")
+  timezone    String  @default("Africa/Cairo")
+  countryCode String? @map("country_code")
+  branding    Json?
+  features    Json?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_settings")
+}
+
+model TenantPlan {
+  tenantId   String    @id @map("tenant_id") @db.Char(36)
+  code       String
+  status     String
+  seatLimit  Int?      @map("seat_limit")
+  limits     Json?
+  features   Json?
+  renewsAt   DateTime? @map("renews_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+  @@map("tenant_plans")
+}
+
+model BillingPlan {
+  code              String   @id
+  name              String
+  description       String?  @db.Text
+  currency          String   @default("USD")
+  monthlyPriceMinor Int?     @map("monthly_price_minor")
+  yearlyPriceMinor  Int?     @map("yearly_price_minor")
+  includedSeats     Int?     @map("included_seats")
+  defaultLimits     Json?    @map("default_limits")
+  defaultFeatures   Json?    @map("default_features")
+  isPublic          Boolean  @default(true) @map("is_public")
+  sortOrder         Int      @default(0) @map("sort_order")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+
+  @@map("billing_plans")
+}
+
+model TenantBillingProfile {
+  tenantId            String          @id @map("tenant_id") @db.Char(36)
+  provider            BillingProvider @default(manual)
+  billingEmail        String?         @map("billing_email")
+  billingName         String?         @map("billing_name")
+  countryCode         String?         @map("country_code")
+  taxId               String?         @map("tax_id")
+  currency            String?         @default("USD")
+  externalCustomerId  String?         @unique @map("external_customer_id")
+  providerMetadata    Json?           @map("provider_metadata")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_billing_profiles")
+}
+
+model TenantSubscription {
+  tenantId                String             @id @map("tenant_id") @db.Char(36)
+  provider                BillingProvider    @default(manual)
+  externalSubscriptionId  String?            @unique @map("external_subscription_id")
+  status                  SubscriptionStatus @default(trialing)
+  planCode                String             @map("plan_code")
+  interval                BillingInterval    @default(monthly)
+  seats                   Int                @default(1)
+  startedAt               DateTime?          @map("started_at")
+  trialEndsAt             DateTime?          @map("trial_ends_at")
+  currentPeriodStart      DateTime?          @map("current_period_start")
+  currentPeriodEnd        DateTime?          @map("current_period_end")
+  cancelAtPeriodEnd       Boolean            @default(false) @map("cancel_at_period_end")
+  providerMetadata        Json?              @map("provider_metadata")
+  lastWebhookEventId      String?            @map("last_webhook_event_id")
+  lastWebhookAt           DateTime?          @map("last_webhook_at")
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([planCode])
+  @@map("tenant_subscriptions")
+}
+
+model BillingWebhookEvent {
+  id              String          @id @default(uuid()) @db.Char(36)
+  tenantId        String?         @map("tenant_id") @db.Char(36)
+  provider        BillingProvider
+  externalEventId String?         @map("external_event_id")
+  eventType       String          @map("event_type")
+  signatureValid  Boolean         @default(false) @map("signature_valid")
+  processed       Boolean         @default(false)
+  statusCode      Int?            @map("status_code")
+  errorMessage    String?         @map("error_message") @db.Text
+  payload         Json
+  createdAt       DateTime        @default(now()) @map("created_at")
+  processedAt     DateTime?       @map("processed_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([provider, createdAt])
+  @@unique([provider, externalEventId])
+  @@map("billing_webhook_events")
+}
+
+// ---------- Users / Auth ----------
+model User {
+  id                 String              @id @db.Char(36)
+  email              String              @unique
+  passwordHash       String?             @map("password_hash")
+  googleSub          String?             @unique @map("google_sub")
+  emailVerified      Boolean             @default(false) @map("email_verified")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  profile            Profile?
+  roles              UserRole[]
+  tenantMemberships  TenantMembership[]
+  tenantInvites      TenantInvite[]
+  refreshTokens      RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  favorites          Favorite[]
+  searchLogs         SearchLog[]
+  auditLogs          AuditLog[]
+  draftChanges       DraftChange[]
+  availabilityChanges AvailabilityLog[]
+  contributionsSubmitted UserContribution[] @relation("ContributionsSubmitted")
+  contributionsReviewed  UserContribution[] @relation("ContributionsReviewed")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Char(36)
+  userId     String    @map("user_id") @db.Char(36)
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+
+model EmailVerificationToken {
+  id         String    @id @default(uuid()) @db.Char(36)
+  userId     String    @map("user_id") @db.Char(36)
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("email_verification_tokens")
+}
+
+model UserRole {
+  id        String   @id @default(uuid()) @db.Char(36)
+  userId    String   @map("user_id") @db.Char(36)
+  role      AppRole
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@map("user_roles")
+}
+
+model Profile {
+  id               String    @id @db.Char(36)
+  displayName      String?   @map("display_name")
+  avatarUrl        String?   @map("avatar_url")
+  defaultStationId String?   @map("default_station_id") @db.Char(36)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  user           User     @relation(fields: [id], references: [id], onDelete: Cascade)
+  defaultStation Station? @relation(fields: [defaultStationId], references: [id])
+
+  @@map("profiles")
+}
+
+// ---------- Geography / Stations ----------
+model City {
+  id        String    @id @default(uuid()) @db.Char(36)
+  tenantId  String?   @map("tenant_id") @db.Char(36)
+  slug      String
+  name      String
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant   Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  stations Station[]
+
+  @@index([tenantId])
+  @@unique([tenantId, slug])
+  @@map("cities")
+}
+
+model Station {
+  id          String    @id @default(uuid()) @db.Char(36)
+  tenantId    String?   @map("tenant_id") @db.Char(36)
+  cityId      String?   @map("city_id") @db.Char(36)
+  name        String
+  area        String?
+  lat         Float
+  lng         Float
+  isPublished Boolean   @default(false) @map("is_published")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  tenant       Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  city         City?           @relation(fields: [cityId], references: [id])
+  lines        Line[]
+  layouts      StationLayout[]
+  zones        LayoutZone[]
+  defaultedFor Profile[]
+
+  @@index([tenantId])
+  @@index([cityId])
+  @@map("stations")
+}
+
+model StationLayout {
+  id        String    @id @default(uuid()) @db.Char(36)
+  tenantId  String?   @map("tenant_id") @db.Char(36)
+  stationId String    @map("station_id") @db.Char(36)
+  viewbox   String    @default("0 0 100 100")
+  notes     String?   @db.Text
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  station Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([stationId])
+  @@map("station_layouts")
+}
+
+model LayoutZone {
+  id        String    @id @default(uuid()) @db.Char(36)
+  tenantId  String?   @map("tenant_id") @db.Char(36)
+  stationId String    @map("station_id") @db.Char(36)
+  zoneKey   String    @map("zone_key")
+  label     String?
+  x         Decimal   @db.Decimal(10, 4)
+  y         Decimal   @db.Decimal(10, 4)
+  w         Decimal   @db.Decimal(10, 4)
+  h         Decimal   @db.Decimal(10, 4)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant  Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  station Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([stationId])
+  @@map("layout_zones")
+}
+
+// ---------- Lines / Stops ----------
+model Line {
+  id            String      @id @default(uuid()) @db.Char(36)
+  tenantId      String?     @map("tenant_id") @db.Char(36)
+  stationId     String      @map("station_id") @db.Char(36)
+  destination   String
+  color         String      @default("#FFC800")
+  vehicleType   VehicleType @default(microbus) @map("vehicle_type")
+  status        LineStatus  @default(active)
+  cars          Int         @default(0)
+  pickupArea    String?     @map("pickup_area")
+  zoneX         Decimal?    @map("zone_x") @db.Decimal(10, 4)
+  zoneY         Decimal?    @map("zone_y") @db.Decimal(10, 4)
+  zoneW         Decimal?    @map("zone_w") @db.Decimal(10, 4)
+  zoneH         Decimal?    @map("zone_h") @db.Decimal(10, 4)
+  isPublished   Boolean     @default(false) @map("is_published")
+  carsUpdatedAt DateTime    @default(now()) @map("cars_updated_at")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  tenant           Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  station          Station          @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  stops            RouteStop[]
+  availabilityLogs AvailabilityLog[]
+
+  @@index([tenantId])
+  @@index([stationId])
+  @@map("lines")
+}
+
+model RouteStop {
+  id        String    @id @default(uuid()) @db.Char(36)
+  tenantId  String?   @map("tenant_id") @db.Char(36)
+  lineId    String    @map("line_id") @db.Char(36)
+  position  Int
+  name      String
+  lat       Float
+  lng       Float
+  keywords  Json      @default("[]")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  line   Line    @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([lineId, position])
+  @@map("route_stops")
+}
+
+// ---------- Operational logs ----------
+model AvailabilityLog {
+  id        String     @id @default(uuid()) @db.Char(36)
+  tenantId  String?    @map("tenant_id") @db.Char(36)
+  lineId    String     @map("line_id") @db.Char(36)
+  cars      Int
+  status    LineStatus
+  changedBy String?    @map("changed_by") @db.Char(36)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  line   Line    @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  actor  User?   @relation(fields: [changedBy], references: [id])
+
+  @@index([tenantId])
+  @@index([lineId, createdAt])
+  @@map("availability_logs")
+}
+
+model Favorite {
+  id        String    @id @default(uuid()) @db.Char(36)
+  tenantId  String?   @map("tenant_id") @db.Char(36)
+  userId    String    @map("user_id") @db.Char(36)
+  kind      String
+  refId     String?   @map("ref_id") @db.Char(36)
+  label     String?
+  payload   Json?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("favorites")
+}
+
+model SearchLog {
+  id          String    @id @default(uuid()) @db.Char(36)
+  tenantId    String?   @map("tenant_id") @db.Char(36)
+  userId      String?   @map("user_id") @db.Char(36)
+  query       String    @db.Text
+  resultCount Int       @default(0) @map("result_count")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@map("search_logs")
+}
+
+model AuditLog {
+  id        String    @id @default(uuid()) @db.Char(36)
+  tenantId  String?   @map("tenant_id") @db.Char(36)
+  actorId   String?   @map("actor_id") @db.Char(36)
+  entity    String
+  entityId  String?   @map("entity_id") @db.Char(36)
+  action    String
+  diff      Json?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  actor  User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model DraftChange {
+  id        String      @id @default(uuid()) @db.Char(36)
+  tenantId  String?     @map("tenant_id") @db.Char(36)
+  authorId  String      @map("author_id") @db.Char(36)
+  entity    String
+  entityId  String?     @map("entity_id") @db.Char(36)
+  patch     Json
+  status    DraftStatus @default(pending)
+  note      String?     @db.Text
+  appliedAt DateTime?   @map("applied_at")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  author User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([entity, entityId])
+  @@map("draft_changes")
+}
+
+
+model UserContribution {
+  id            String                 @id @default(uuid()) @db.Char(36)
+  tenantId      String?                @map("tenant_id") @db.Char(36)
+  submittedById String?                @map("submitted_by_id") @db.Char(36)
+  type          UserContributionType
+  status        UserContributionStatus @default(pending_review)
+  stationId     String?                @map("station_id") @db.Char(36)
+  stationName   String?                @map("station_name")
+  lineId        String?                @map("line_id") @db.Char(36)
+  payload       Json
+  reviewerId    String?                @map("reviewer_id") @db.Char(36)
+  reviewNote    String?                @map("review_note") @db.Text
+  reviewedAt    DateTime?              @map("reviewed_at")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+
+  tenant      Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  submittedBy User?   @relation("ContributionsSubmitted", fields: [submittedById], references: [id], onDelete: SetNull)
+  reviewer    User?   @relation("ContributionsReviewed", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([type, stationId])
+  @@index([type, lineId])
+  @@map("user_contributions")
+}
