@@ -2,6 +2,26 @@
 
 The public-launch bootstrap no longer assumes that the requested admin user already exists.
 
+## Prerequisites — fill these in before step 1
+
+`grant-platform-admin.sh` runs `docker compose exec mysql ...` against the production stack, so `selfhost/.env.production` MUST contain at least the following variables filled with real values **before you run the script**:
+
+| Group | Variables | Why the script needs them |
+|---|---|---|
+| Public hostname | `API_DOMAIN` | Backend boot, Caddy routing, OAuth redirect URIs |
+| MySQL credentials | `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` | `docker compose exec mysql` cannot authenticate without them |
+| JWT signing | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Backend container will not boot, so MySQL exec will hit nothing |
+
+If any of these are missing or empty, the script aborts with exit code `64` (EX_USAGE) and a single message listing every missing variable. You can run the same check standalone:
+
+```bash
+node scripts/check-bootstrap-prereqs.mjs --env selfhost/.env.production
+```
+
+Reference template: `selfhost/.env.example`.
+
+## What the script does
+
 `selfhost/scripts/grant-platform-admin.sh` performs an idempotent bootstrap for `ADMIN_EMAIL`:
 
 1. Creates the admin user if it does not already exist.
