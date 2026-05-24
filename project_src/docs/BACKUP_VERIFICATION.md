@@ -27,10 +27,14 @@ can never trip the freshness gate. The heartbeat carries:
 - `bytes` — uncompressed-on-disk size of the gzip dump.
 - `sha256` — the same checksum copied alongside the dump to the external
   target. Round-trip verification matches against this value.
-- `target_kind` — `rclone`, `mounted_directory`, or `local_only`.
+- `target_kind` — `rclone`, `rclone_streaming`, `mounted_directory`, or `local_only`.
 - `target_location` — the remote URL or absolute mount path.
 - `external_target_configured` — `true` only when `target_kind` is not
   `local_only`. Production releases require `true`.
+- `stream_direct` — `true` when the dump was streamed directly to the
+  remote with no local intermediate file (see "Streaming mode" below).
+- `local_path` — the absolute path of the on-box gzip dump in the
+  traditional flow, or empty when streaming.
 
 `scripts/validate-backup-freshness.mjs` reads the heartbeat and writes a
 pass/fail evidence file. Run it on the VPS the same way you run the
@@ -46,6 +50,41 @@ Tunables (env):
   period (24h) to absorb scheduling jitter.
 - `BACKUP_FRESHNESS_REQUIRE_EXTERNAL` — set to `1` for the production
   release; rejects local-only backups.
+
+## Streaming mode (disk-full safe)
+
+By default `mysql-backup.sh` writes the gzip dump to `BACKUP_DIR` first,
+then copies it to the remote. On hosts with a tight system disk this
+risks the cron silently truncating the dump when the disk fills mid-run.
+
+Set `BACKUP_STREAM_DIRECT=true` (with `BACKUP_RCLONE_REMOTE` configured)
+to stream the dump directly to the remote with no local intermediate
+file:
+
+```text
+mysqldump → gzip → stream-backup-checksum.mjs → rclone rcat
+```
+
+`selfhost/scripts/stream-backup-checksum.mjs` is a tiny Node helper that
+passes bytes through unchanged while computing sha256 and a byte counter
+in a single pass. Its sidecar files feed the heartbeat with the exact
+hash and size of what landed on the remote — no second read, no race
+with bash process substitution. The pure summarizer is unit-tested in
+`backend/test/stream-checksum.spec.ts`.
+
+Constraints:
+
+- Streaming requires `BACKUP_RCLONE_REMOTE`. Streaming to a mounted
+  directory is supported by the existing `cp` path with no additional
+  benefit, so it is intentionally not wired up here.
+- `set -o pipefail` (already enabled at the top of `mysql-backup.sh`)
+  guarantees that a failure anywhere in the pipe — `mysqldump`, `gzip`,
+  the checksum probe, or `rclone rcat` — aborts the run with a non-zero
+  exit and refuses to write the heartbeat.
+- The local on-box copy that the traditional path keeps for a fast
+  restore is *not* available in streaming mode. If you need both, run
+  the traditional path on a host with adequate disk and reserve the
+  streaming path for the disk-constrained boxes.
 
 ## How the round-trip works
 
