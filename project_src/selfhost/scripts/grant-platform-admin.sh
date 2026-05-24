@@ -17,7 +17,18 @@ EVIDENCE_FILE=${EVIDENCE_FILE:-"$EVIDENCE_DIR/platform-admin-readiness.json"}
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "[platform-admin] env file not found: $ENV_FILE" >&2
-  exit 1
+  echo "[platform-admin] copy selfhost/.env.example to $ENV_FILE and fill in the required vars before re-running" >&2
+  exit 64
+fi
+
+# Prerequisite check: bail out early with a single, paste-friendly error
+# listing every missing variable rather than letting docker compose fail
+# later with a cryptic "Access denied" / "no such service". The shared
+# Node module also enforces the same rules in unit tests so the runbook
+# stays in sync with the script.
+if ! ENV_FILE="$ENV_FILE" node "$ROOT_DIR/scripts/check-bootstrap-prereqs.mjs" --env "$ENV_FILE" >&2; then
+  echo "[platform-admin] aborting before docker compose call (exit 64 = EX_USAGE: env file is incomplete)" >&2
+  exit 64
 fi
 
 # Track whether we generate a fresh password this run, so we can detect the
