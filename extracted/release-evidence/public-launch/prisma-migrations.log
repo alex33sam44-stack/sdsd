@@ -1,0 +1,10 @@
+
+> vite_react_shadcn_ts@0.0.0 verify:prisma-migrations
+> node scripts/verify-prisma-migrations.mjs
+
+{
+  "checkedAt": "2026-05-08T00:38:19.802Z",
+  "passed": true,
+  "failures": [],
+  "warnings": []
+}
