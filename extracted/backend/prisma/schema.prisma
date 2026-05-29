@@ -106,6 +106,8 @@ model Tenant {
   searchLogs        SearchLog[]
   auditLogs         AuditLog[]
   draftChanges      DraftChange[]
+  translations      Translation[]
+  i18nOverrides     I18nOverride[]
 
   @@map("tenants")
 }
@@ -557,4 +559,66 @@ model DraftChange {
   @@index([status])
   @@index([entity, entityId])
   @@map("draft_changes")
+}
+
+// ---------- Localization / Translation ----------
+model Translation {
+  id           String   @id @default(uuid()) @db.Char(36)
+  tenantId     String?  @map("tenant_id") @db.Char(36)
+  entityType   String   @map("entity_type") @db.VarChar(64)
+  entityId     String   @map("entity_id") @db.VarChar(191)
+  field        String   @db.VarChar(64)
+  locale       String   @db.VarChar(10)
+  value        String   @db.Text
+  source       String   @default("machine") @db.VarChar(32)
+  sourceLocale String   @default("ar") @map("source_locale") @db.VarChar(10)
+  sourceHash   String   @map("source_hash") @db.Char(64)
+  quality      String   @default("auto") @db.VarChar(16)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@unique([entityType, entityId, field, locale], map: "translations_uniq")
+  @@index([tenantId])
+  @@index([entityType, entityId, locale])
+  @@index([sourceHash, locale])
+  @@map("translations")
+}
+
+model TranslationCache {
+  id             String   @id @default(uuid()) @db.Char(36)
+  sourceHash     String   @map("source_hash") @db.Char(64)
+  sourceLocale   String   @map("source_locale") @db.VarChar(10)
+  targetLocale   String   @map("target_locale") @db.VarChar(10)
+  sourceText     String   @map("source_text") @db.Text
+  translatedText String   @map("translated_text") @db.Text
+  provider       String   @default("noop") @db.VarChar(32)
+  createdAt      DateTime @default(now()) @map("created_at")
+  lastUsedAt     DateTime @default(now()) @map("last_used_at")
+  hitCount       Int      @default(1) @map("hit_count")
+
+  @@unique([sourceHash, sourceLocale, targetLocale], map: "translation_cache_uniq")
+  @@index([lastUsedAt])
+  @@map("translation_cache")
+}
+
+model I18nOverride {
+  id             String   @id @default(uuid()) @db.Char(36)
+  tenantId       String?  @map("tenant_id") @db.Char(36)
+  sourceLocale   String   @default("ar") @map("source_locale") @db.VarChar(10)
+  targetLocale   String   @map("target_locale") @db.VarChar(10)
+  sourceHash     String   @map("source_hash") @db.Char(64)
+  sourceText     String   @map("source_text") @db.Text
+  translatedText String   @map("translated_text") @db.Text
+  domain         String   @default("ui") @db.VarChar(32)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, targetLocale, sourceHash, domain], map: "i18n_overrides_uniq")
+  @@index([targetLocale, isActive])
+  @@map("i18n_overrides")
 }

@@ -92,6 +92,19 @@
 		}
 	}
 
+	# Public i18n endpoints (locales list, override bundle, runtime overlay
+	# JS, on-demand translation). The overlay JS is the only way to
+	# localize the FROZEN frontend without violating the freeze policy.
+	@i18nApi path /api/i18n/*
+	handle @i18nApi {
+		reverse_proxy backend:4000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up Host {host}
+		}
+	}
+
 	# WhatsApp/Facebook/etc. do not execute the Vite SPA. For shared routes,
 	# serve server-rendered OG HTML while normal browsers still get the SPA.
 	@sharePreview {

@@ -24,6 +24,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ValidationModule } from './modules/validation/validation.module';
 import { ZonesModule } from './modules/zones/zones.module';
 import { OgModule } from './modules/og/og.module';
+import { I18nModule } from './common/i18n/i18n.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { OgModule } from './modules/og/og.module';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
     TenancyModule,
+    I18nModule,
     AuthModule,
     UsersModule,
     RolesModule,

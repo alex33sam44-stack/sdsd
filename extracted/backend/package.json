@@ -13,6 +13,7 @@
     "test": "jest",
     "tenant:backfill-legacy": "ts-node scripts/backfill-legacy-tenant.ts",
     "billing:seed-foundation": "ts-node scripts/seed-billing-foundation.ts",
+    "seed:i18n": "ts-node scripts/seed-i18n-overrides.ts",
     "test:watch": "jest --watch",
     "test:ci": "jest --runInBand",
     "release:verify": "ts-node scripts/release-verify.ts",
