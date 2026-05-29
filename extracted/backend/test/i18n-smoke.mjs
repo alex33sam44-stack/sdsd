@@ -258,6 +258,62 @@ group('Layer 5: seed file ships baseline UI strings for en+fr', () => {
   for (const m of must) assert(`seed contains ${m.slice(0, 50)}…`, seed.includes(m));
 });
 
+group('Layer 6: French is a first-class locale', () => {
+  // 6.1 — i18n contract files include fr at parity with en
+  const repoRoot = resolve(ROOT, '..');
+  const ar = JSON.parse(readFileSync(resolve(repoRoot, 'src/i18n/locales/ar.json'), 'utf8'));
+  const en = JSON.parse(readFileSync(resolve(repoRoot, 'src/i18n/locales/en.json'), 'utf8'));
+  const fr = JSON.parse(readFileSync(resolve(repoRoot, 'src/i18n/locales/fr.json'), 'utf8'));
+  function flat(o, p = '') {
+    let r = {};
+    for (const k in o) {
+      const nk = p ? p + '.' + k : k;
+      if (typeof o[k] === 'object' && o[k] !== null && !Array.isArray(o[k])) Object.assign(r, flat(o[k], nk));
+      else r[nk] = o[k];
+    }
+    return r;
+  }
+  const fa = flat(ar), fe = flat(en), ff = flat(fr);
+  assert('ar/fr key parity', Object.keys(fa).length === Object.keys(ff).length);
+  assert('en/fr key parity', Object.keys(fe).length === Object.keys(ff).length);
+  const arabicLeak = Object.values(ff).filter((v) => typeof v === 'string' && /[\u0600-\u06FF]/.test(v));
+  assert('zero arabic leaks in fr', arabicLeak.length === 0);
+
+  // 6.2 — backend types declare fr as supported
+  const types = readSource('src/common/i18n/i18n.types.ts');
+  assert('SUPPORTED_LOCALES includes fr', types.includes("'fr'"));
+  assert('Locale union includes fr', types.includes("'ar' | 'en' | 'fr'"));
+
+  // 6.3 — locale resolver picks French from fr-FR/fr-CA accept-language
+  for (const tag of ['fr-FR', 'fr-CA,fr;q=0.9', 'fr', 'FR']) {
+    const got = resolveLocale({ query: {}, headers: { 'accept-language': tag }, cookies: {} });
+    assert(`accept-language ${tag} → fr`, got === 'fr', `got ${got}`);
+  }
+
+  // 6.4 — runtime overlay JS lists fr in SUPPORTED
+  const ctl = readSource('src/common/i18n/i18n.controller.ts');
+  assert("overlay SUPPORTED contains 'fr'", /SUPPORTED\s*=\s*\['ar',\s*'en',\s*'fr'\]/.test(ctl));
+
+  // 6.5 — translateText would route fr correctly through localizeResponse
+  // (re-uses the Layer 3 walker to confirm fr fans out across all entities)
+  const trCalls = [];
+  const trans = async (text, to) => { trCalls.push({ text, to }); return `FR(${text})`; };
+  const payload = {
+    stations: [{ id: 's1', name: 'موقف رمسيس', area: 'وسط البلد',
+      lines: [{ id: 'l1', destination: 'التحرير', pickupArea: 'البوابة الرئيسية' }],
+      stops: [{ id: 'p1', name: 'العتبة', position: 1 }],
+    }],
+    cities: [{ id: 'c1', name: 'القاهرة' }],
+  };
+  return localizeResponse(payload, 'fr', trans).then((out) => {
+    assert('fr: Station.name translated', out.stations[0].name === 'FR(موقف رمسيس)');
+    assert('fr: Line.destination translated', out.stations[0].lines[0].destination === 'FR(التحرير)');
+    assert('fr: RouteStop.name translated', out.stations[0].stops[0].name === 'FR(العتبة)');
+    assert('fr: City.name translated', out.cities[0].name === 'FR(القاهرة)');
+    assert('fr: translator called once per field', trCalls.every((c) => c.to === 'fr'));
+  });
+});
+
 // ---------- summary ----------
 console.log('\n----- summary -----');
 for (const r of results) {
