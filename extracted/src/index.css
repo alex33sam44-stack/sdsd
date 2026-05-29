@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Taxi Station Guide - Design System
+   All colors HSL. High-contrast tactile utility aesthetic.
+*/
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 224 75% 10%;
+
+    --surface: 0 0% 100%;
+    --surface-alt: 210 40% 95%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 224 75% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 75% 10%;
+
+    /* Egyptian taxi yellow */
+    --primary: 47 100% 50%;
+    --primary-hover: 45 100% 45%;
+    --primary-foreground: 224 75% 10%;
+
+    /* Deep navy anchor */
+    --secondary: 224 75% 10%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 40% 95%;
+    --muted-foreground: 215 20% 35%;
+
+    --accent: 217 91% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 215 25% 78%;
+    --input: 215 25% 78%;
+    --ring: 47 100% 50%;
+
+    --radius: 0.75rem;
+
+    /* Hard shadows (tactile) */
+    --shadow-sm: 0 2px 0 0 hsl(var(--secondary));
+    --shadow-md: 0 4px 0 0 hsl(var(--secondary));
+    --shadow-lg: 0 8px 0 0 hsl(var(--secondary));
+
+    /* Motion */
+    --ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    direction: rtl;
+  }
+
+  body {
+    @apply bg-surface-alt text-foreground antialiased;
+    font-family: 'Cairo', system-ui, sans-serif;
+    font-feature-settings: 'tnum' on;
+  }
+
+  #root {
+    @apply min-h-screen flex justify-center;
+  }
+}
+
+@layer components {
+  /* The phone-shaped app shell */
+  .app-shell {
+    @apply w-full max-w-[480px] min-h-screen bg-background relative overflow-hidden;
+    box-shadow: 0 0 60px -10px hsl(var(--secondary) / 0.25);
+  }
+
+  /* Tactile primary button */
+  .btn-tactile {
+    @apply inline-flex items-center justify-center gap-2 font-bold text-lg
+           px-6 h-14 rounded-xl border-2 border-secondary
+           transition-all duration-150 active:translate-y-1 select-none;
+    box-shadow: var(--shadow-md);
+  }
+  .btn-tactile:active {
+    box-shadow: 0 0 0 0 hsl(var(--secondary));
+  }
+  .btn-tactile:disabled {
+    @apply opacity-60 pointer-events-none;
+  }
+
+  .btn-primary {
+    @apply btn-tactile bg-primary text-primary-foreground hover:bg-primary-hover;
+  }
+  .btn-secondary {
+    @apply btn-tactile bg-surface text-secondary hover:bg-surface-alt;
+  }
+  .btn-dark {
+    @apply btn-tactile bg-secondary text-secondary-foreground;
+  }
+
+  .card-tactile {
+    @apply bg-surface rounded-xl border-2 border-secondary p-5;
+    box-shadow: var(--shadow-md);
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold border-2 border-secondary bg-surface;
+  }
+
+  .input-admin {
+    @apply w-full h-12 rounded-lg border-2 border-secondary bg-surface px-3 text-secondary font-bold focus:outline-none focus:ring-2 focus:ring-primary;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .shadow-tactile-sm { box-shadow: var(--shadow-sm); }
+  .shadow-tactile { box-shadow: var(--shadow-md); }
+  .shadow-tactile-lg { box-shadow: var(--shadow-lg); }
+  .ease-snap { transition-timing-function: var(--ease-snap); }
+}

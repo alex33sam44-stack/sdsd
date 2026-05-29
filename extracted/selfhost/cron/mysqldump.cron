@@ -1,0 +1,3 @@
+# Mwasalat MySQL backup cron
+# Runs every day at 02:15 server time. Logs to /var/log/mwasalat-mysql-backup.log
+15 2 * * * cd /opt/mwasalat && ENV_FILE=/opt/mwasalat/selfhost/.env.production /opt/mwasalat/selfhost/scripts/mysql-backup.sh >> /var/log/mwasalat-mysql-backup.log 2>&1
