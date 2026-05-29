@@ -14,6 +14,10 @@
     "tenant:backfill-legacy": "ts-node scripts/backfill-legacy-tenant.ts",
     "billing:seed-foundation": "ts-node scripts/seed-billing-foundation.ts",
     "seed:i18n": "ts-node scripts/seed-i18n-overrides.ts",
+    "seed:intercity": "ts-node scripts/seed-intercity-routes.ts",
+    "verify:data-quality": "node scripts/verify-data-quality.mjs",
+    "db:prune": "node scripts/db-prune.mjs",
+    "db:prune:dry-run": "node scripts/db-prune.mjs --dry-run",
     "test:watch": "jest --watch",
     "test:ci": "jest --runInBand",
     "release:verify": "ts-node scripts/release-verify.ts",
@@ -40,6 +44,7 @@
     "helmet": "^8.0.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "mysql2": "^3.11.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "uuid": "^10.0.0"

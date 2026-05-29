@@ -1,0 +1,70 @@
+# Cloudflare Workers deployment for the OG share-preview surface.
+#
+# What this worker does:
+#   - Sits in front of /t/* /g/* /c/* (live trip / group / channel
+#     share links) and serves bot-friendly HTML to crawlers
+#     (WhatsApp, Facebook, Twitter, Telegram, Slack, Discord, etc.)
+#     so the link unfurls with a real OG image and description.
+#   - For non-bot requests it transparently falls back to the
+#     origin (Caddy → frontend) so humans get the real SPA.
+#   - Caches preview HTML at the edge (per-token, short TTL) so a
+#     viral share never hammers the origin.
+#
+# Why Cloudflare and not just Caddy:
+#   - Edge replication: previews unfurl quickly anywhere in the
+#     world, even when the VPS is in Frankfurt and a creator is in
+#     Sao Paulo.
+#   - DDoS protection: viral shares can spike to millions of
+#     bot fetches in minutes; Cloudflare absorbs that.
+#   - Free tier covers our expected volume (100k req/day).
+#
+# Deploy:
+#   npx wrangler deploy --config deployment/cloudflare/wrangler.toml
+#
+# Required env vars (set via `wrangler secret put` or the
+# Cloudflare dashboard, NEVER committed):
+#   ORIGIN_BASE     e.g. https://api.mwasalat.app
+#   APP_ORIGIN      e.g. https://mwasalat.app
+
+name = "mwasalat-og"
+main = "worker.js"
+compatibility_date = "2026-01-15"
+workers_dev = false
+
+# Routes are configured per environment. The * pattern catches the
+# share roots; everything else (assets, /api/*) is unaffected.
+[[routes]]
+pattern = "mwasalat.app/t/*"
+zone_name = "mwasalat.app"
+[[routes]]
+pattern = "mwasalat.app/g/*"
+zone_name = "mwasalat.app"
+[[routes]]
+pattern = "mwasalat.app/c/*"
+zone_name = "mwasalat.app"
+
+# Edge cache (KV) for preview HTML. Falls back gracefully if the
+# binding isn't configured: the worker just hits origin every time.
+[[kv_namespaces]]
+binding = "OG_CACHE"
+id = "REPLACE_WITH_KV_ID"
+preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+
+[vars]
+DEFAULT_LOCALE = "ar"
+EDGE_CACHE_TTL_SECONDS = "300"
+
+[observability]
+enabled = true
+
+[env.staging]
+name = "mwasalat-og-staging"
+[[env.staging.routes]]
+pattern = "staging.mwasalat.app/t/*"
+zone_name = "mwasalat.app"
+[[env.staging.routes]]
+pattern = "staging.mwasalat.app/g/*"
+zone_name = "mwasalat.app"
+[[env.staging.routes]]
+pattern = "staging.mwasalat.app/c/*"
+zone_name = "mwasalat.app"

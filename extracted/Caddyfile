@@ -18,6 +18,26 @@
 		reverse_proxy backend:4000
 	}
 
+	# Server-Sent Events stream — long-lived connections that must NOT be
+	# rate-limited per request and MUST not buffer responses (otherwise the
+	# client never sees the `hello` envelope until the connection closes).
+	@sse path /api/realtime/stream*
+	handle @sse {
+		reverse_proxy backend:4000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up Host {host}
+			flush_interval -1
+			transport http {
+				dial_timeout 5s
+				# response_header_timeout 0 = never time out the read side; SSE is long-lived
+				response_header_timeout 0
+				read_timeout 0
+			}
+		}
+	}
+
 	# Tight edge/IP limit for authentication endpoints before they reach NestJS.
 	@auth path /api/auth/*
 	handle @auth {

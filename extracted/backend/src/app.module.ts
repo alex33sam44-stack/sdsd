@@ -25,6 +25,11 @@ import { ValidationModule } from './modules/validation/validation.module';
 import { ZonesModule } from './modules/zones/zones.module';
 import { OgModule } from './modules/og/og.module';
 import { I18nModule } from './common/i18n/i18n.module';
+import { LocalSearchModule } from './modules/local-search/local-search.module';
+import { IntercityModule } from './modules/intercity/intercity.module';
+import { DataQualityModule } from './modules/data-quality/data-quality.module';
+import { AiModule } from './modules/ai/ai.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
 
 @Module({
   imports: [
@@ -50,6 +55,11 @@ import { I18nModule } from './common/i18n/i18n.module';
     TenantsModule,
     BillingModule,
     OgModule,
+    LocalSearchModule,
+    IntercityModule,
+    DataQualityModule,
+    AiModule,
+    RealtimeModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
