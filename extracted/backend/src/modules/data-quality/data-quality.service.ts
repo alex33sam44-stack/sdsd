@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { EXTRA_DATA_QUALITY_CHECKS } from './data-quality.extra-checks';
 import type {
   QualityCheck,
   QualityCounts,
@@ -47,6 +48,12 @@ export class DataQualityService {
       ...(await this.checkLineGeometry(tenantId)),
       ...(await this.checkUnpublishedShare(counts)),
       ...(await this.checkIntercityCoverage(tenantId, counts)),
+      // Additive (PR #20): 8 extra checks live in
+      // data-quality.extra-checks.ts so they can be unit-tested
+      // without booting Nest. Each one returns a QualityCheck[]
+      // matching the same v1 contract; we never replace any of the
+      // checks above so existing dashboards keep rendering.
+      ...(await this.runExtraChecks(tenantId)),
     ];
 
     const score = this.score(checks);
@@ -60,6 +67,19 @@ export class DataQualityService {
       score,
       band,
     };
+  }
+
+  private async runExtraChecks(tenantId: string | null): Promise<QualityCheck[]> {
+    const all: QualityCheck[] = [];
+    for (const fn of EXTRA_DATA_QUALITY_CHECKS) {
+      try {
+        const out = await fn(tenantId, this.prisma);
+        if (Array.isArray(out)) all.push(...out);
+      } catch {
+        // Never let one extra check break the whole report.
+      }
+    }
+    return all;
   }
 
   // ------------------------- counts -------------------------
