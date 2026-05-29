@@ -1,0 +1,7 @@
+{
+  "status": "passed",
+  "passed": true,
+  "database": "mysql",
+  "evidence": "real_mysql_integration_test",
+  "tested_at": "2026-05-08T00:50:57.477Z"
+}

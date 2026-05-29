@@ -1,0 +1,17 @@
+{
+  "name": "mwasalat-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Playwright e2e + mobile quality suite for the mwasalat platform. Lives outside the frozen frontend so it never violates the freeze policy.",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:mobile": "playwright test --project=pixel5-3g --project=iphone13",
+    "test:desktop": "playwright test --project=desktop-chrome",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "typescript": "^5.5.0"
+  }
+}

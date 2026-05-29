@@ -1,0 +1,90 @@
+name: Frontend / mobile quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Runs the Playwright suite on a fresh build of the frozen frontend.
+# Three projects (Pixel 5 on slow 3G, iPhone 13, desktop Chrome) so
+# we catch viewport + i18n + SSE regressions on real mobile shapes.
+#
+# This workflow is intentionally independent from the frontend
+# freeze guard — that one only checks file hashes; this one checks
+# runtime behaviour.
+jobs:
+  e2e:
+    name: Playwright (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [pixel5-3g, iphone13, desktop-chrome]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Verify frontend freeze (must stay clean)
+        run: npm run frontend:verify
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install e2e suite
+        working-directory: tests-e2e
+        run: npm install
+
+      - name: Install Playwright browsers
+        working-directory: tests-e2e
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Start preview server
+        run: |
+          npx vite preview --host 127.0.0.1 --port 5173 &
+          echo $! > .preview.pid
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:5173/ >/dev/null; then
+              echo "preview server up"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run Playwright project
+        working-directory: tests-e2e
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:5173
+        run: npx playwright test --project=${{ matrix.project }}
+
+      - name: Stop preview server
+        if: always()
+        run: |
+          if [ -f .preview.pid ]; then
+            kill "$(cat .preview.pid)" 2>/dev/null || true
+            rm -f .preview.pid
+          fi
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: tests-e2e/playwright-report
+          retention-days: 14
+
+      - name: Upload trace artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-${{ matrix.project }}
+          path: tests-e2e/test-results
+          retention-days: 14
