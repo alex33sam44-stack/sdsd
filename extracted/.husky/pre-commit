@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+# Frontend freeze: refuse commits that change the locked surface.
+# See FRONTEND_FREEZE.md
+. "$(dirname -- "$0")/_/husky.sh" 2>/dev/null || true
+
+if command -v node >/dev/null 2>&1; then
+  node scripts/freeze-frontend.mjs verify || exit 1
+else
+  echo "frontend-freeze: node not found in PATH; skipping local check (CI will still enforce)."
+fi

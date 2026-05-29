@@ -1,0 +1,17 @@
+{
+  "checked_at": "2026-05-08T00:59:12.522Z",
+  "tested_at": "2026-05-08T00:59:12.522Z",
+  "passed": false,
+  "status": "failed",
+  "evidence": "external_backup_target_verification",
+  "method": "mounted_directory",
+  "reason": "BACKUP_REMOTE_DIR resolves to root filesystem, not an external mount",
+  "detail": {
+    "remote_dir": "/mnt/mwasalat-backups/mysql",
+    "mount_target": "/",
+    "mount_fstype": "overlay",
+    "remote_device": "none"
+  },
+  "env_file": "/tmp/backupfix/selfhost/.env.production",
+  "accepted_as_public_launch_evidence": false
+}

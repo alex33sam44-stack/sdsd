@@ -1,0 +1,4 @@
+# Stage-0 staging stack. Run from repository root:
+# docker compose -f selfhost/compose.stage0.yml --env-file selfhost/.env.staging up -d --build
+include:
+  - ../docker-compose.yml

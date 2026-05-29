@@ -1,0 +1,151 @@
+# ---------------------------------------------------------------------------
+# Mwasalat self-hosted stack (VPS / Docker)
+#
+# Services:
+#   - mysql      : MySQL 8 database (persistent volume)
+#   - backend    : NestJS API (auto-runs Prisma setup on boot)
+#   - frontend   : Vite UI built into a static Nginx container
+#   - caddy      : reverse proxy + automatic HTTPS (Let's Encrypt)
+#
+# Quick start on the VPS:
+#   1. cp .env.production.example .env.production  # then fill in values
+#   2. docker compose --env-file .env.production up -d --build
+#   3. docker compose logs -f backend
+#
+# Public endpoint after DNS points at the VPS:
+#   https://${API_DOMAIN}/api/stations
+# ---------------------------------------------------------------------------
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Do NOT publish 3306 publicly. Keep MySQL on the internal network only.
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: "mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}"
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
+      APP_REDIRECT_URI: ${APP_REDIRECT_URI}
+      BILLING_DEFAULT_PROVIDER: ${BILLING_DEFAULT_PROVIDER:-manual}
+      BILLING_APP_URL: ${BILLING_APP_URL:-}
+      BILLING_SUCCESS_URL: ${BILLING_SUCCESS_URL:-}
+      BILLING_CANCEL_URL: ${BILLING_CANCEL_URL:-}
+      BILLING_PORTAL_RETURN_URL: ${BILLING_PORTAL_RETURN_URL:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_STARTER_MONTHLY: ${STRIPE_PRICE_STARTER_MONTHLY:-}
+      STRIPE_PRICE_STARTER_YEARLY: ${STRIPE_PRICE_STARTER_YEARLY:-}
+      STRIPE_PRICE_GROWTH_MONTHLY: ${STRIPE_PRICE_GROWTH_MONTHLY:-}
+      STRIPE_PRICE_GROWTH_YEARLY: ${STRIPE_PRICE_GROWTH_YEARLY:-}
+      STRIPE_PRICE_ENTERPRISE_MONTHLY: ${STRIPE_PRICE_ENTERPRISE_MONTHLY:-}
+      STRIPE_PRICE_ENTERPRISE_YEARLY: ${STRIPE_PRICE_ENTERPRISE_YEARLY:-}
+      LEMON_SQUEEZY_API_KEY: ${LEMON_SQUEEZY_API_KEY:-}
+      LEMON_SQUEEZY_STORE_ID: ${LEMON_SQUEEZY_STORE_ID:-}
+      LEMON_SQUEEZY_WEBHOOK_SECRET: ${LEMON_SQUEEZY_WEBHOOK_SECRET:-}
+      LEMON_VARIANT_STARTER_MONTHLY: ${LEMON_VARIANT_STARTER_MONTHLY:-}
+      LEMON_VARIANT_STARTER_YEARLY: ${LEMON_VARIANT_STARTER_YEARLY:-}
+      LEMON_VARIANT_GROWTH_MONTHLY: ${LEMON_VARIANT_GROWTH_MONTHLY:-}
+      LEMON_VARIANT_GROWTH_YEARLY: ${LEMON_VARIANT_GROWTH_YEARLY:-}
+      LEMON_VARIANT_ENTERPRISE_MONTHLY: ${LEMON_VARIANT_ENTERPRISE_MONTHLY:-}
+      LEMON_VARIANT_ENTERPRISE_YEARLY: ${LEMON_VARIANT_ENTERPRISE_YEARLY:-}
+      # Only needed for the one-shot migration scripts; safe to leave blank later.
+      APP_VERSION: ${APP_VERSION:-prod}
+      LOG_LEVEL: ${LOG_LEVEL:-warn}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://${APP_DOMAIN}}
+    healthcheck:
+      # Hit the in-container health endpoint. Uses node (already present) so
+      # no extra packages are needed in the runtime image.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+      - web
+    # No `ports:` — Caddy is the only public entrypoint.
+
+
+  frontend:
+    build:
+      context: .
+      dockerfile: selfhost/frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - web
+
+  caddy:
+    build:
+      context: ./selfhost/caddy
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN}
+      APP_DOMAIN: ${APP_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+
+volumes:
+  mysql_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    driver: bridge
+  web:
+    driver: bridge

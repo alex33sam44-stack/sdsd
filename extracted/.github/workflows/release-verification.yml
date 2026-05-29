@@ -1,0 +1,77 @@
+name: Release Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'Live backend URL (real HTTPS URL; placeholders like example.com are rejected)'
+        required: true
+        type: string
+      strict:
+        description: 'Fail the workflow on verification issues'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  frontend-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Reject placeholder backend URL
+        run: node scripts/validate-real-url.mjs '${{ inputs.backend_url }}' backend_url
+      - name: Install frontend deps
+        run: npm ci
+      - name: Build frontend for release verification
+        env:
+          VITE_API_BASE_URL: ${{ inputs.backend_url }}
+          VITE_APP_VERSION: release
+          VITE_RELEASE_NAME: release@${{ github.sha }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+        run: npm run build
+      - name: Run frontend release verification
+        env:
+          BACKEND_URL: ${{ inputs.backend_url }}
+          RELEASE_VERIFY_STRICT: ${{ inputs.strict && '1' || '0' }}
+          RELEASE_VERIFY_OUTPUT: frontend-release-report.json
+        run: npm run verify:release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-release-verification
+          path: frontend-release-report.json
+
+  backend-release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Reject placeholder backend URL
+        working-directory: .
+        run: node scripts/validate-real-url.mjs '${{ inputs.backend_url }}' backend_url
+      - name: Install backend deps
+        run: npm install
+      - name: Prisma generate
+        run: npm run prisma:generate
+      - name: Build backend
+        env:
+          APP_VERSION: release@${{ github.sha }}
+        run: npm run build
+      - name: Run backend release verification
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          APP_VERSION: release@${{ github.sha }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VERIFY_HTTP_BASE_URL: ${{ inputs.backend_url }}
+          RELEASE_VERIFY_STRICT: ${{ inputs.strict && '1' || '0' }}
+        run: npm run release:verify
