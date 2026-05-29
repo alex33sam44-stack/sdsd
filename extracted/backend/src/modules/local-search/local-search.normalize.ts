@@ -175,3 +175,110 @@ export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; l
     Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(x));
 }
+
+// ============================================================
+// Hub detection + confidence banding (additive helpers).
+// ============================================================
+
+/**
+ * Coarse hub identifier for an entry's location, computed from
+ * lat/lng + the canonical `area` label. Used by the local-search
+ * service so a query like "Cairo University" can be ranked higher
+ * within the Cairo hub than against a same-named Alexandria stop.
+ */
+export type LocalHub = 'cairo' | 'giza' | 'alexandria' | 'delta' | 'upper-egypt' | 'sinai' | 'red-sea' | '';
+
+const HUB_BOXES: Array<{ hub: LocalHub; latMin: number; latMax: number; lngMin: number; lngMax: number }> = [
+  { hub: 'giza',         latMin: 29.7, latMax: 30.2, lngMin: 30.5, lngMax: 31.20 },
+  { hub: 'cairo',        latMin: 29.7, latMax: 30.2, lngMin: 31.20, lngMax: 31.6 },
+  { hub: 'alexandria',   latMin: 31.0, latMax: 31.4, lngMin: 29.6, lngMax: 30.2 },
+  { hub: 'delta',        latMin: 30.3, latMax: 31.6, lngMin: 30.5, lngMax: 32.7 },
+  { hub: 'upper-egypt',  latMin: 22.0, latMax: 29.5, lngMin: 30.0, lngMax: 35.0 },
+  { hub: 'sinai',        latMin: 27.5, latMax: 31.5, lngMin: 32.7, lngMax: 35.5 },
+  { hub: 'red-sea',      latMin: 22.0, latMax: 28.5, lngMin: 33.0, lngMax: 36.0 },
+];
+
+const HUB_KEYWORDS: Array<{ hub: LocalHub; words: RegExp }> = [
+  { hub: 'giza',       words: /(جيزه|الجيزه|gizeh|giza|haram|الهرم|pyramids|الدقي|dokki|المهندسين|mohandessin|6\s*october|اكتوبر)/i },
+  { hub: 'cairo',      words: /(القاهره|القاهرة|cairo|kairo|تحرير|tahrir|رمسيس|ramses|المعادي|maadi|حلوان|helwan|nasr\s*city|مدينة\s*نصر|heliopolis|مصر\s*الجديده)/i },
+  { hub: 'alexandria', words: /(الاسكندريه|الإسكندرية|alex(andria)?|sidi\s*gaber|سيدي\s*جابر|raml|المنشيه|mansheya)/i },
+  { hub: 'delta',      words: /(طنطا|tanta|المنصوره|mansoura|الزقازيق|zagazig|بنها|banha|دمياط|damietta|دمنهور|damanhour)/i },
+  { hub: 'upper-egypt', words: /(اسيوط|asyut|سوهاج|sohag|قنا|qena|الاقصر|luxor|اسوان|aswan|المنيا|minya|بني\s*سويف|beni\s*suef)/i },
+  { hub: 'sinai',      words: /(شرم|sharm|طابا|taba|دهب|dahab|نويبع|nuweiba|العريش|arish)/i },
+  { hub: 'red-sea',    words: /(الغردقه|الغردقة|hurghada|سفاجا|safaga|مرسى\s*علم|marsa\s*alam)/i },
+];
+
+/** Map a coordinate to a coarse hub, or '' when nothing matches. */
+export function hubForCoord(lat: number | undefined, lng: number | undefined): LocalHub {
+  if (typeof lat !== 'number' || typeof lng !== 'number') return '';
+  for (const box of HUB_BOXES) {
+    if (lat >= box.latMin && lat <= box.latMax && lng >= box.lngMin && lng <= box.lngMax) return box.hub;
+  }
+  return '';
+}
+
+/** Detect a hub from the raw query text (Arabic + English + franko). */
+export function detectHubFromQuery(query: string | null | undefined): LocalHub {
+  const text = (query ?? '').toString();
+  if (!text) return '';
+  for (const { hub, words } of HUB_KEYWORDS) if (words.test(text)) return hub;
+  return '';
+}
+
+/** Map a `score` (0..1) to a friendly banding consumed by SPAs. */
+export function confidenceBand(score: number): 'high' | 'medium' | 'low' {
+  if (score >= 0.75) return 'high';
+  if (score >= 0.45) return 'medium';
+  return 'low';
+}
+
+/**
+ * Edit-distance-aware suggestion picker. Given the (possibly empty)
+ * candidate list and the query, return up to 5 alternate phrasings
+ * the user could click. Used to power "did you mean …" UX.
+ */
+export function pickSuggestions(query: string, candidates: string[], limit = 5): string[] {
+  const q = normalize(query);
+  if (!q) return [];
+  const ranked = candidates
+    .map((c) => ({ c, d: editDistance(q, normalize(c)) }))
+    .filter((x) => x.d <= Math.max(2, Math.ceil(q.length / 3)))
+    .sort((a, b) => a.d - b.d);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of ranked) {
+    if (seen.has(r.c)) continue;
+    seen.add(r.c);
+    out.push(r.c);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Damerau–Levenshtein distance, capped: we don't care about the
+ * exact value beyond the user-visible threshold of "close enough".
+ */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a) return b.length;
+  if (!b) return a.length;
+  const al = a.length, bl = b.length;
+  const grid: number[][] = Array.from({ length: al + 1 }, () => new Array(bl + 1).fill(0));
+  for (let i = 0; i <= al; i += 1) grid[i][0] = i;
+  for (let j = 0; j <= bl; j += 1) grid[0][j] = j;
+  for (let i = 1; i <= al; i += 1) {
+    for (let j = 1; j <= bl; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      grid[i][j] = Math.min(
+        grid[i - 1][j] + 1,        // deletion
+        grid[i][j - 1] + 1,        // insertion
+        grid[i - 1][j - 1] + cost, // substitution
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        grid[i][j] = Math.min(grid[i][j], grid[i - 2][j - 2] + 1); // transposition
+      }
+    }
+  }
+  return grid[al][bl];
+}

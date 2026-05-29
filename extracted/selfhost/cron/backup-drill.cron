@@ -1,0 +1,9 @@
+# mwasalat — monthly backup-restore drill
+# Restores the latest mysqldump snapshot into a temporary verify_*
+# database, compares row counts on core tables, drops the temp DB,
+# writes evidence to /var/log/mwasalat/backup-drill.log.
+#
+# Schedule: 1st of every month at 04:30 (after backup at 03:00 + prune at 03:15).
+# Override $BACKUP_REMOTE_DIR via the env file the script picks up.
+
+30 4 1 * * root cd /opt/mwasalat/backend && /usr/bin/env -S bash -lc 'set -a; source /opt/mwasalat/selfhost/.env.production; set +a; node ./scripts/verify-restore.mjs --json' >> /var/log/mwasalat/backup-drill.log 2>&1

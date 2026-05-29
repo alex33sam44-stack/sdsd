@@ -1,0 +1,1 @@
+BLOCKED: BACKUP_REMOTE_DIR must be a non-root external mount, or configure BACKUP_RCLONE_REMOTE and pass write verification. mount_target=/ and mount_fstype=overlay are rejected.

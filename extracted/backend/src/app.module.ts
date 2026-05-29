@@ -31,6 +31,7 @@ import { DataQualityModule } from './modules/data-quality/data-quality.module';
 import { AiModule } from './modules/ai/ai.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { SeoModule } from './modules/seo/seo.module';
+import { LocationProvidersModule } from './modules/location-providers/location-providers.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { SeoModule } from './modules/seo/seo.module';
     AiModule,
     RealtimeModule,
     SeoModule,
+    LocationProvidersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

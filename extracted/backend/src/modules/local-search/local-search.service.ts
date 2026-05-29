@@ -1,15 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EGYPT_CATALOG, CatalogEntry } from './local-search.catalog';
-import { haversineKm, normalize, tokenScore } from './local-search.normalize';
+import {
+  confidenceBand,
+  detectHubFromQuery,
+  haversineKm,
+  hubForCoord,
+  normalize,
+  pickSuggestions,
+  tokenScore,
+} from './local-search.normalize';
 import type {
   LocalSearchHit,
+  LocalSearchHub,
   LocalSearchKind,
   LocalSearchQuery,
   LocalSearchResponse,
 } from './local-search.types';
 
 const DEFAULT_LIMIT = 5;
+const SUGGESTION_THRESHOLD = 0.5; // when top hit < this, we surface "did you mean"
 
 @Injectable()
 export class LocalSearchService {
@@ -25,11 +35,34 @@ export class LocalSearchService {
 
     const limit = Math.min(50, Math.max(1, query.limit ?? DEFAULT_LIMIT));
     const restrictKind = query.kind;
+    const detectedHub = detectHubFromQuery(q);
+    const hubFilter = query.hub ?? detectedHub;
 
     const dbHits = await this.searchDb(tenantId, q, normalized, restrictKind);
     const catalogHits = this.searchCatalog(q, normalized, restrictKind);
 
     let merged = [...dbHits, ...catalogHits];
+
+    // Hub-aware ranking: when the query (or caller) anchors a hub,
+    // boost hits whose own coordinate sits inside that hub. We do
+    // NOT filter — boosting only — so cross-hub matches still
+    // surface for users searching for, say, an Alexandria fare from
+    // Cairo. Use `query.hub` to enforce a hard filter instead.
+    if (hubFilter) {
+      merged = merged.map((h) => {
+        const ownHub = h.hub ?? hubForCoord(h.lat, h.lng);
+        if (ownHub && ownHub === hubFilter) {
+          return { ...h, score: Math.min(1, h.score + 0.1), hub: ownHub };
+        }
+        return { ...h, hub: ownHub };
+      });
+    }
+
+    if (query.hub) {
+      // Hard filter: caller asked for a single hub, drop everything else.
+      merged = merged.filter((h) => (h.hub ?? '') === query.hub);
+    }
+
     if (query.near) {
       merged = merged
         .map((h) => {
@@ -51,16 +84,31 @@ export class LocalSearchService {
       const taken = perKind.get(hit.kind) ?? 0;
       if (taken >= limit) continue;
       perKind.set(hit.kind, taken + 1);
-      limited.push(hit);
+      // Backfill optional fields without touching anything required.
+      const enriched: LocalSearchHit = {
+        ...hit,
+        confidence: confidenceBand(hit.score),
+      };
+      limited.push(enriched);
     }
 
-    return {
+    // Suggestions when nothing satisfying came back.
+    const suggestions =
+      limited.length === 0 || (limited[0]?.score ?? 0) < SUGGESTION_THRESHOLD
+        ? this.computeSuggestions(q, restrictKind)
+        : undefined;
+
+    const response: LocalSearchResponse = {
       query: q,
       normalized,
       hits: limited,
       source: dbHits.length && catalogHits.length ? 'mixed' : dbHits.length ? 'db' : 'catalog',
       durationMs: Date.now() - start,
     };
+
+    if (detectedHub) response.detectedHub = detectedHub;
+    if (suggestions && suggestions.length) response.suggestions = suggestions;
+    return response;
   }
 
   // ---------- internals ----------
@@ -122,6 +170,8 @@ export class LocalSearchService {
         lng: s.lng,
         area: s.area ?? undefined,
         href: `/station/${s.id}`,
+        hub: hubForCoord(s.lat, s.lng),
+        provider: 'local-search-db',
       });
     }
 
@@ -134,6 +184,7 @@ export class LocalSearchService {
         score: tokenScore(rawQuery, l.destination),
         area: l.station?.name,
         href: l.station ? `/route/${l.station.id}/${l.id}` : undefined,
+        provider: 'local-search-db',
       });
     }
 
@@ -146,6 +197,8 @@ export class LocalSearchService {
         score: tokenScore(rawQuery, stop.name),
         lat: stop.lat,
         lng: stop.lng,
+        hub: hubForCoord(stop.lat, stop.lng),
+        provider: 'local-search-db',
       });
     }
 
@@ -178,6 +231,12 @@ export class LocalSearchService {
         }
       }
       if (best > 0.3) {
+        // Pick a Latin alternate name from aliases when the canonical
+        // name is in Arabic, and vice-versa, so SPAs can show both.
+        const isArabicCanonical = /[\u0600-\u06FF]/.test(entry.name);
+        const alternateName = entry.aliases.find((a) =>
+          isArabicCanonical ? !/[\u0600-\u06FF]/.test(a) : /[\u0600-\u06FF]/.test(a),
+        );
         hits.push({
           id: entry.id,
           kind: entry.kind,
@@ -187,10 +246,28 @@ export class LocalSearchService {
           lat: entry.lat,
           lng: entry.lng,
           area: entry.area,
+          alternateName,
+          hub: hubForCoord(entry.lat, entry.lng),
+          provider: 'local-search-catalog',
         });
       }
     }
     return hits;
+  }
+
+  /**
+   * Compute "did you mean" suggestions from the curated catalog.
+   * Uses Damerau–Levenshtein distance against canonical names +
+   * aliases so typos like "ranses" or "midan tahir" still surface a
+   * useful list.
+   */
+  private computeSuggestions(rawQuery: string, restrictKind?: LocalSearchKind): string[] {
+    const candidates: string[] = [];
+    for (const entry of EGYPT_CATALOG) {
+      if (restrictKind && entry.kind !== restrictKind) continue;
+      candidates.push(entry.name, ...entry.aliases);
+    }
+    return pickSuggestions(rawQuery, candidates, 5);
   }
 }
 
@@ -199,3 +276,8 @@ export class LocalSearchService {
 // pulling the full module — keeps the test fixture trivial.
 export { EGYPT_CATALOG } from './local-search.catalog';
 export type { CatalogEntry } from './local-search.catalog';
+
+// Re-export the additive hub helpers so consumers can use them
+// without having to import the normalize file directly. Existing
+// re-exports above are unchanged.
+export { hubForCoord, detectHubFromQuery, confidenceBand, pickSuggestions } from './local-search.normalize';
