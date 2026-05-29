@@ -30,6 +30,7 @@ import { IntercityModule } from './modules/intercity/intercity.module';
 import { DataQualityModule } from './modules/data-quality/data-quality.module';
 import { AiModule } from './modules/ai/ai.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
+import { SeoModule } from './modules/seo/seo.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
     DataQualityModule,
     AiModule,
     RealtimeModule,
+    SeoModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
