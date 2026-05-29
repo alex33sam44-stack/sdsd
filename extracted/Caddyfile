@@ -1,0 +1,134 @@
+# Caddy reverse proxy — automatic HTTPS via Let's Encrypt.
+# API_DOMAIN comes from the .env.production file.
+# DNS prerequisite: an A record for $API_DOMAIN -> VPS public IP.
+#
+# This Caddyfile uses the third-party rate_limit handler from
+# github.com/mholt/caddy-ratelimit. The docker-compose.yml builds Caddy from
+# selfhost/caddy/Dockerfile so the directive is available at runtime.
+
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	# Dedicated route for health checks: never cached, lightweight, used by
+	# uptime monitors and the `docker compose` healthcheck. Keep this outside
+	# rate limiting so monitoring cannot be blocked by noisy clients.
+	@health path /api/health /api/ready
+	handle @health {
+		header Cache-Control "no-store"
+		reverse_proxy backend:4000
+	}
+
+	# Tight edge/IP limit for authentication endpoints before they reach NestJS.
+	@auth path /api/auth/*
+	handle @auth {
+		rate_limit {
+			zone auth_per_ip {
+				key {remote_host}
+				window 1m
+				events 30
+			}
+		}
+		reverse_proxy backend:4000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up Host {host}
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+			}
+		}
+	}
+
+	# Broad edge/IP limit for all remaining API traffic. NestJS still applies
+	# route-level throttling, but this prevents volumetric bursts from reaching
+	# the backend first.
+	handle {
+		rate_limit {
+			zone api_per_ip {
+				key {remote_host}
+				window 1m
+				events 300
+			}
+		}
+		reverse_proxy backend:4000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up Host {host}
+			# Fail fast if the backend is down so clients see a real 502 not a hang.
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+			}
+		}
+	}
+
+	# Sensible security headers (NestJS also sets helmet defaults).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	# Public OG endpoints for dynamic share images/metadata.
+	@ogAssets path /api/og/*
+	handle @ogAssets {
+		reverse_proxy backend:4000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up Host {host}
+		}
+	}
+
+	# WhatsApp/Facebook/etc. do not execute the Vite SPA. For shared routes,
+	# serve server-rendered OG HTML while normal browsers still get the SPA.
+	@sharePreview {
+		path /t/* /g/* /c/*
+		header_regexp User-Agent (?i)(WhatsApp|facebookexternalhit|Facebot|Twitterbot|Slackbot|TelegramBot|LinkedInBot|Discordbot|Applebot|Pinterest|SkypeUriPreview|Google-InspectionTool)
+	}
+	handle @sharePreview {
+		rewrite * /api/og/preview{uri}
+		reverse_proxy backend:4000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up Host {host}
+		}
+	}
+
+	# Single-page application fallback is handled by the frontend Nginx container.
+	handle {
+		reverse_proxy frontend:80 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+			header_up Host {host}
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
