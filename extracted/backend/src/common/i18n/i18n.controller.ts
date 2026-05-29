@@ -91,16 +91,25 @@ export class I18nController {
 
 /* eslint-disable max-len */
 const I18N_RUNTIME_SOURCE = `// mwasalat i18n runtime overlay — loaded into index.html via Caddy
-// The frontend is frozen; this script patches visible Arabic strings
+// The frontend is frozen; this script patches visible text strings
 // to the user's chosen locale at runtime by intercepting DOM mutations
 // and outbound fetch responses.
+//
+// Source detection: the SPA bundles ar/en/fr resources only. For any
+// target outside that set (e.g. 'pt'), the SPA falls back to English,
+// so the overlay must treat BOTH Arabic AND English as translatable
+// sources. For ar/en/fr targets we still translate Arabic → target.
 (function () {
   if (window.__MW_I18N__) return;
   var COOKIE = 'mw_locale';
   var STORAGE = 'mw_locale';
   var EVENT = 'mw:locale-change';
   var DEFAULT = 'ar';
-  var SUPPORTED = ['ar', 'en', 'fr'];
+  var SUPPORTED = ['ar', 'en', 'fr', 'pt'];
+  // Locales whose DOM rendering is fully shipped by the frozen SPA.
+  // For any locale NOT in this set, English is also accepted as a
+  // source language (the SPA falls back to en for unsupported locales).
+  var FROZEN_BUNDLED = ['ar', 'en', 'fr'];
 
   function getCookie(name) {
     var m = document.cookie.match('(?:^|;\\\\s*)' + name + '=([^;]*)');
@@ -127,6 +136,9 @@ const I18N_RUNTIME_SOURCE = `// mwasalat i18n runtime overlay — loaded into in
   var current = detect();
   setCookie(COOKIE, current);
   try { localStorage.setItem(STORAGE, current); } catch (e) {}
+  // Also mirror to the SPA's own storage key so i18next picks up the
+  // locale on next render. Frozen frontend uses 'app.lang'.
+  try { localStorage.setItem('app.lang', current); } catch (e) {}
   document.documentElement.lang = current;
   document.documentElement.dir = current === 'ar' ? 'rtl' : 'ltr';
 
@@ -145,15 +157,22 @@ const I18N_RUNTIME_SOURCE = `// mwasalat i18n runtime overlay — loaded into in
       .catch(function () { return {}; });
   }
 
+  // Treat both Arabic and (when target is unbundled, e.g. pt) English
+  // as translatable source text. We can't accept Latin text for ar/en/
+  // fr targets because that would translate already-localized strings.
   function looksTranslatable(text) {
     if (!text) return false;
     var t = text.trim();
     if (!t || t.length > 600) return false;
-    // skip pure numbers, urls, emails, hashes
     if (/^[\\d\\s.,:;%+\\-/()$£€]+$/.test(t)) return false;
     if (/^https?:\\/\\//.test(t)) return false;
     if (/^[\\w.+-]+@[\\w.-]+$/.test(t)) return false;
-    return /[\\u0600-\\u06FF]/.test(t);
+    var hasArabic = /[\\u0600-\\u06FF]/.test(t);
+    if (hasArabic) return true;
+    // Latin source — only when target locale is NOT bundled by the SPA.
+    if (FROZEN_BUNDLED.indexOf(current) !== -1) return false;
+    // require at least one ASCII letter and >=2 chars
+    return /[a-zA-Z]/.test(t) && t.length >= 2;
   }
 
   function translateText(text) {
@@ -161,7 +180,13 @@ const I18N_RUNTIME_SOURCE = `// mwasalat i18n runtime overlay — loaded into in
     if (!key) return Promise.resolve(text);
     if (dict[key] != null) return Promise.resolve(swapWhitespace(text, key, dict[key]));
     if (pending[key]) return pending[key].then(function (out) { return swapWhitespace(text, key, out); });
-    pending[key] = fetch('/api/i18n/translate?text=' + encodeURIComponent(key) + '&to=' + current, {
+    // Hint the source: Arabic letters → ar, otherwise → en (frozen
+    // SPA's i18next fallback). The backend autodetects too but the
+    // hint reduces a hop on the hot path.
+    var fromHint = /[\\u0600-\\u06FF]/.test(key) ? 'ar' : 'en';
+    var url = '/api/i18n/translate?text=' + encodeURIComponent(key) +
+              '&to=' + current + '&from=' + fromHint;
+    pending[key] = fetch(url, {
       headers: { 'x-locale': current, 'x-i18n-skip': '1' },
       credentials: 'same-origin'
     }).then(function (r) { return r.ok ? r.json() : { translated: key }; })
@@ -273,12 +298,22 @@ const I18N_RUNTIME_SOURCE = `// mwasalat i18n runtime overlay — loaded into in
   function setLocale(next) {
     if (SUPPORTED.indexOf(next) === -1) return;
     if (next === current) return;
+    var prev = current;
     current = next;
     setCookie(COOKIE, next);
     try { localStorage.setItem(STORAGE, next); } catch (e) {}
-    // Going back to the source locale: a hard reload is the safest way
-    // to restore original DOM strings without tracking every override.
-    if (next === DEFAULT) { location.reload(); return; }
+    // Mirror to SPA's i18next storage key so the frozen frontend
+    // re-renders in the new locale on its next render cycle.
+    try { localStorage.setItem('app.lang', next); } catch (e) {}
+    // Switching between SPA-bundled locales (ar/en/fr) needs a hard
+    // reload so i18next picks up the change AND so previously-
+    // translated DOM nodes revert to source text. Switching to/from
+    // 'pt' or any unbundled locale: same — the SPA renders English
+    // and the overlay re-translates.
+    if (FROZEN_BUNDLED.indexOf(next) !== -1 || FROZEN_BUNDLED.indexOf(prev) !== -1) {
+      location.reload();
+      return;
+    }
     fetchOverrides().then(applyAll);
     document.dispatchEvent(new CustomEvent(EVENT, { detail: { locale: next } }));
   }

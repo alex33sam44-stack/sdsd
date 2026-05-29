@@ -75,7 +75,7 @@ export class DeepLProvider implements ITranslationProvider {
   constructor(private readonly apiKey: string, private readonly free = false) {}
   supports(_from: Locale, to: Locale): boolean {
     // DeepL does not support Arabic as a target reliably; keep it for
-    // EN/FR pairs only and let another provider fill in Arabic.
+    // EN/FR/PT pairs only and let another provider fill in Arabic.
     return to !== 'ar';
   }
   async translate(req: TranslationRequest): Promise<TranslationResult> {
@@ -114,6 +114,7 @@ export class OpenAIProvider implements ITranslationProvider {
       ar: 'Egyptian Arabic',
       en: 'English',
       fr: 'French',
+      pt: 'Portuguese',
     };
     const messages = [
       {

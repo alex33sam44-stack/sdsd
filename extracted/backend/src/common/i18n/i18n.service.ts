@@ -83,7 +83,14 @@ export class I18nService implements OnModuleInit {
   ): Promise<string> {
     const trimmed = text?.trim();
     if (!trimmed) return text ?? '';
-    const from = options.from ?? SOURCE_LOCALE;
+    // Auto-detect source: Arabic letters → 'ar' (the platform's
+    // canonical source). Otherwise → caller-provided hint or 'en'
+    // (the SPA's i18next fallback). This makes locales like 'pt'
+    // work even though the frozen frontend renders English for
+    // unbundled locales.
+    const explicit = options.from;
+    const detected: Locale = /[\u0600-\u06FF]/.test(trimmed) ? 'ar' : 'en';
+    const from = explicit ?? detected;
     if (target === from) return text;
 
     // 0. tenant override

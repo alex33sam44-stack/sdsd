@@ -24,7 +24,7 @@ function assert(name, ok, details) {
 }
 function group(label, fn) {
   console.log(`\n# ${label}`);
-  fn();
+  return fn();
 }
 
 // --------- pure re-implementations to validate the algorithms ---------
@@ -107,7 +107,7 @@ async function localizeResponse(payload, target, translator) {
 }
 
 // --------- LocaleResolverMiddleware re-implementation ---------
-const SUPPORTED = ['ar', 'en', 'fr'];
+const SUPPORTED = ['ar', 'en', 'fr', 'pt'];
 function resolveLocale(req) {
   const pick = (raw) => {
     if (raw == null) return null;
@@ -292,7 +292,7 @@ group('Layer 6: French is a first-class locale', () => {
 
   // 6.4 — runtime overlay JS lists fr in SUPPORTED
   const ctl = readSource('src/common/i18n/i18n.controller.ts');
-  assert("overlay SUPPORTED contains 'fr'", /SUPPORTED\s*=\s*\['ar',\s*'en',\s*'fr'\]/.test(ctl));
+  assert("overlay SUPPORTED contains 'fr'", /SUPPORTED\s*=\s*\[[^\]]*'fr'/.test(ctl));
 
   // 6.5 — translateText would route fr correctly through localizeResponse
   // (re-uses the Layer 3 walker to confirm fr fans out across all entities)
@@ -314,7 +314,74 @@ group('Layer 6: French is a first-class locale', () => {
   });
 });
 
+group('Layer 7: Portuguese is a first-class locale', () => {
+  // 7.1 — backend types declare pt as supported
+  const types = readSource('src/common/i18n/i18n.types.ts');
+  assert("Locale union includes 'pt'", types.includes("'ar' | 'en' | 'fr' | 'pt'"));
+  assert('SUPPORTED_LOCALES includes pt', /SUPPORTED_LOCALES[^=]*=\s*\[\s*'ar',\s*'en',\s*'fr',\s*'pt'\s*\]/.test(types));
+
+  // 7.2 — overlay JS lists pt in SUPPORTED + treats English as a fallback source
+  const ctl = readSource('src/common/i18n/i18n.controller.ts');
+  assert("overlay SUPPORTED contains 'pt'", /SUPPORTED\s*=\s*\['ar',\s*'en',\s*'fr',\s*'pt'\]/.test(ctl));
+  assert('overlay tracks SPA-bundled locales (FROZEN_BUNDLED)', ctl.includes('FROZEN_BUNDLED'));
+  assert('overlay accepts Latin source for unbundled targets', ctl.includes('FROZEN_BUNDLED.indexOf(current)'));
+  assert('overlay mirrors locale to SPA storage key (app.lang)', ctl.includes("'app.lang'"));
+
+  // 7.3 — service auto-detects source locale (Arabic vs Latin)
+  const service = readSource('src/common/i18n/i18n.service.ts');
+  assert('service auto-detects source locale by Arabic-block presence', service.includes('[\\u0600-\\u06FF]'));
+
+  // 7.4 — locale resolver picks pt from accept-language
+  for (const tag of ['pt-BR', 'pt-PT,pt;q=0.9', 'pt', 'PT-br']) {
+    const got = resolveLocale({ query: {}, headers: { 'accept-language': tag }, cookies: {} });
+    assert(`accept-language ${tag} → pt`, got === 'pt', `got ${got}`);
+  }
+  assert('?lang=pt query → pt', resolveLocale({ query: { lang: 'pt' }, headers: {}, cookies: {} }) === 'pt');
+
+  // 7.5 — seed file ships baseline pt strings
+  const seed = readSource('scripts/seed-i18n-overrides.ts');
+  for (const m of [
+    "pt: 'Mwasalat'",
+    "pt: 'Entrar'",
+    "pt: 'Compartilhar no WhatsApp'",
+    "pt: 'Estação'",
+    "pt: 'Linha'",
+    "pt: 'Micro-ônibus'",
+    "pt: 'Cairo'",
+    "pt: 'Centro'",
+    "pt: 'Plano gratuito'",
+  ]) {
+    assert(`seed contains ${m.slice(0, 40)}…`, seed.includes(m));
+  }
+
+  // 7.6 — provider chain knows Portuguese
+  const providers = readSource('src/common/i18n/translation-providers.ts');
+  assert('OpenAI langName includes Portuguese', providers.includes("pt: 'Portuguese'"));
+});
+
+group('Layer 8: localizeResponse fans out for pt the same as fr/en', () => {
+  const trCalls = [];
+  const trans = async (text, to) => { trCalls.push({ text, to }); return `PT(${text})`; };
+  const payload = {
+    stations: [{ id: 's1', name: 'موقف رمسيس',
+      lines: [{ id: 'l1', destination: 'التحرير' }],
+      stops: [{ id: 'p1', name: 'العتبة', position: 1 }],
+    }],
+    cities: [{ id: 'c1', name: 'القاهرة' }],
+  };
+  return localizeResponse(payload, 'pt', trans).then((out) => {
+    assert('pt: Station.name translated', out.stations[0].name === 'PT(موقف رمسيس)');
+    assert('pt: Line.destination translated', out.stations[0].lines[0].destination === 'PT(التحرير)');
+    assert('pt: RouteStop.name translated', out.stations[0].stops[0].name === 'PT(العتبة)');
+    assert('pt: City.name translated', out.cities[0].name === 'PT(القاهرة)');
+    assert('pt: every translator call targets pt', trCalls.every((c) => c.to === 'pt'));
+  });
+});
+
 // ---------- summary ----------
+// Wait one microtask tick so async groups (Layer 3, Layer 6, Layer 8)
+// finish appending their assertions before we print the summary.
+await new Promise((r) => setTimeout(r, 50));
 console.log('\n----- summary -----');
 for (const r of results) {
   console.log(`${r.ok ? 'ok  ' : 'FAIL'} - ${r.name}${r.details ? ' — ' + r.details : ''}`);
