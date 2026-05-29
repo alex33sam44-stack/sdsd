@@ -1,0 +1,8 @@
+# mwasalat — MySQL retention pruning
+# Installed by selfhost/scripts/install-backup-cron.sh on the VPS.
+# Runs nightly at 03:15 (after the mysqldump backup at 03:00).
+#
+# Output is appended to /var/log/mwasalat/db-prune.log (rotated by
+# logrotate.d/mwasalat). Errors emit non-zero so cron mails root.
+
+15 3 * * * root cd /opt/mwasalat/backend && /usr/bin/node ./scripts/db-prune.mjs --json >> /var/log/mwasalat/db-prune.log 2>&1

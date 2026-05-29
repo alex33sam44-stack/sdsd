@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-05-24T05:37:11.340Z",
+  "tested_at": "2026-05-24T05:37:11.340Z",
+  "files": {
+    "productionEnv": "selfhost/.env.production",
+    "frontendEnv": ".env.production.frontend"
+  },
+  "passed": false,
+  "failures": [
+    "selfhost/.env.production: SMTP_HOST is required for password-registration email verification",
+    "selfhost/.env.production: SMTP_USER is required for password-registration email verification",
+    "selfhost/.env.production: SMTP_PASS is required for password-registration email verification",
+    "selfhost/.env.production: BACKUP_REMOTE_DIR resolves to root filesystem, not an external mount (/mnt/mwasalat-backups/mysql)",
+    "selfhost/.env.production: BACKUP_REMOTE_DIR resolves to overlay/root filesystem, not an external backup mount (/mnt/mwasalat-backups/mysql)",
+    "selfhost/.env.production: BACKUP_REMOTE_DIR is on the same filesystem as the app root; use an external mount or BACKUP_RCLONE_REMOTE"
+  ],
+  "warnings": []
+}

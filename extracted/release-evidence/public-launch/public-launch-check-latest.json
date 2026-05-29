@@ -1,0 +1,27 @@
+{
+  "checkedAt": "2026-05-08T00:59:24.870Z",
+  "tested_at": "2026-05-08T00:59:24.870Z",
+  "status": "failed",
+  "publicLaunchReady": false,
+  "apiUrl": "https://api.mwasalat.com",
+  "gates": [
+    {
+      "name": "backup-target",
+      "status": "failed",
+      "command": "npm run verify:backup-target",
+      "outputFile": "release-evidence/public-launch/backup-target.log",
+      "detail": "blocked: external backup target has not been proven"
+    },
+    {
+      "name": "release-evidence",
+      "status": "failed",
+      "command": "RELEASE_VERIFY_REQUIRE_EVIDENCE=1 npm run verify:evidence",
+      "outputFile": "release-evidence/public-launch/release-evidence.log",
+      "detail": "blocked: external-backup-target evidence is not accepted"
+    }
+  ],
+  "notes": [
+    "Public launch is intentionally blocked until the backup target is either a verified writable rclone remote or a non-root external mounted filesystem.",
+    "mount_target=/ and mount_fstype=overlay are explicitly rejected."
+  ]
+}

@@ -1,0 +1,23 @@
+name: Frontend Freeze Guard
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Block any change to the frozen frontend surface.
+# See FRONTEND_FREEZE.md for policy.
+jobs:
+  verify:
+    name: Verify frontend lock
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify frontend.lock.json
+        run: node scripts/freeze-frontend.mjs verify
+      - name: Show status (informational)
+        if: always()
+        run: node scripts/freeze-frontend.mjs status || true
